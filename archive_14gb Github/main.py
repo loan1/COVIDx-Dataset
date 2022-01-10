@@ -6,11 +6,6 @@ import pandas as pd
 import numpy as np
 import time
 
-from torch.utils.data import DataLoader
-import warnings
-import os 
-import torchvision.transforms as transforms
-
 # from torch._C import dtype
 
 from script.utils import *
@@ -18,6 +13,7 @@ from script.train import training_loop
 from script.dataset import ImageDataset
 from script.test import img_transform, test_loop
 from script.visualize import *
+from script.dataset import augment, dataloader
 # from script.data import *
 #for reading and displaying images
 
@@ -36,7 +32,7 @@ import matplotlib.pyplot as plt
 
 def get_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--CHECKPOINT_PATH", default = './model/FT_ResNet152_cp.pt',type=str)
+    parser.add_argument("--CHECKPOINT_PATH", default = './model/CovidNet.pt',type=str)
     parser.add_argument('--train_path', default='./dataset/train/', type=str)
     parser.add_argument('--test_path', default='./dataset/test/', type= str)
 
@@ -47,7 +43,7 @@ def get_opt():
     parser.add_argument('--BATCH_SIZE', default=32, type=int)
     parser.add_argument('--classes', default=['Negative', 'Positive'])
     parser.add_argument('--num_epochs', default= 22, type=int)
-    parser.add_argument('--lr', default=2e-4, type=float)
+    parser.add_argument('--lr', default=2e-3, type=float)
     parser.add_argument('--num_classes', default=2, type=int)
     
 
@@ -57,81 +53,6 @@ def get_opt():
 
     opt = parser.parse_args()
     return opt
-
-
-
-def augment():
-    data_transforms = {
-        'train' : transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.RandomAffine(degrees = 0, shear = 0.2),    
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(mean = [0.485, 0.456, 0.406],  std = np.array([0.229, 0.224, 0.225])),
-        ]),
-        'test' : transforms.Compose([
-            transforms.Resize((224,224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean = [0.485, 0.456, 0.406],  std = np.array([0.229, 0.224, 0.225]))
-        ])
-    }
-    return data_transforms
-
-def dataloader():
-
-    opt = get_opt()
-
-    train_txt= pd.read_csv(opt.train_metadata, sep= '\s+', header=None)
-    test_txt = pd.read_csv(opt.test_metadata, sep= '\s+', header=None)
-    val_txt = pd.read_csv(opt.val_metadata,sep = "\s+", header= None)
-    
-
-    train_txt.columns = ["file_name","label"]
-    test_txt.columns = ["file_name","label"]
-    val_txt.columns = ["file_name","label"]
-
-    # print(train_txt.count())
-    # print(val_txt['label'].value_counts())
-    # print(val_txt.count())
-
-    train_dataset = ImageDataset(train_txt,opt.train_path,augment()['train'])
-    test_dataset = ImageDataset(test_txt,opt.test_path,augment()['test'])
-    val_dataset = ImageDataset(val_txt,opt.train_path,augment()['test'])
-
-    # print(train_dataset)
-
-    loader ={
-        'train' : DataLoader(
-            train_dataset, 
-            batch_size= opt.BATCH_SIZE,
-            shuffle=True
-        ),
-        'val' : DataLoader(
-            val_dataset, 
-            batch_size=opt.BATCH_SIZE,
-            shuffle=True
-        ),
-        'test' : DataLoader(
-            test_dataset, 
-            batch_size=opt.BATCH_SIZE,
-            shuffle=True
-        )
-    }   
-    return loader
-
-def visualiz():
-
-    opt = get_opt()
-    # Get a batch of training data
-    image, label = next(iter(dataloader()['train']))
-    fig = plt.figure(figsize=(25, 7))
-
-    # display batch_size = 40 images
-    for idx in np.arange(opt.BATCH_SIZE):
-        ax = fig.add_subplot(4, opt.BATCH_SIZE/4, idx+1, xticks=[], yticks=[])
-        imshow(image[idx]) # lay 1 cap co nghia la o day show anh
-        ax.set_title(opt.classes[label[idx]]) # vì đã chuyển từ nes/pos -> 0,1 -> tensor 0,1
-    plt.show()
 
 def predict(path_img, model_ft, verbose = False):
     if not verbose:
@@ -157,33 +78,68 @@ def predict(path_img, model_ft, verbose = False):
             print('img: {} is: {}'.format(os.path.basename(path_img), pred_str))
         else:
             pred_str = str('Positive')
-            print('img: {} is: {}'.format(os.path.basename(path_img), pred_str))
+            print('img: {} is: {}'.format(os.path.basename(path_img), pred_str)) 
+def visualiz():
+
+    opt = get_opt()
+    # Get a batch of training data
+    image, label = next(iter(dataloader(opt)['train']))
+    fig = plt.figure(figsize=(25, 7))
+
+    # display batch_size = 40 images
+    for idx in np.arange(opt.BATCH_SIZE):
+        ax = fig.add_subplot(4, opt.BATCH_SIZE/4, idx+1, xticks=[], yticks=[])
+        imshow(image[idx]) # lay 1 cap co nghia la o day show anh
+        ax.set_title(opt.classes[label[idx]]) # vì đã chuyển từ nes/pos -> 0,1 -> tensor 0,1
+    plt.show()
+
+
+
+def load_train_continue(CHECKPOINT_PATH, model):
+    checkpoint = torch.load(CHECKPOINT_PATH)#, map_location=device)
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    epoch = checkpoint['epoch']
+    model, loss_list, acc_list = load_model(CHECKPOINT_PATH, model)
+
+    loss_list, acc_list = training_loop(
+        model, optimizer, criterion, scheduler, device, opt.num_epochs, dataloader(opt), opt.CHECKPOINT_PATH, epoch, loss_list, acc_list)
+    return model, loss_list, acc_list
 
 def load_model(CHECKPOINT_PATH, model):
     checkpoint = torch.load(CHECKPOINT_PATH)#, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
-    return model
+    loss_list = checkpoint['loss_list']
+    acc_list = checkpoint['train_acc']
 
-def main():
+    return model, loss_list, acc_list
 
-    resnet = initialize_model(opt.num_classes, opt.feature_extract,use_pretrained=True)
-    optimizer, scheduler = optimi(resnet,device, opt.feature_extract, opt.lr, opt.num_epochs)
+def main(model, first_train = True):
+
+    # model = initialize_model(opt.num_classes, opt.feature_extract,use_pretrained=True)
+    # optimizer, scheduler = optimi(model,device, opt.feature_extract, opt.lr, opt.num_epochs)
 
     since = time.time()
-    loss_list, acc_list = training_loop(resnet, optimizer, criterion, scheduler, device, opt.num_epochs, dataloader, opt.CHECKPOINT_PATH)
+
+    if first_train == True:
+        loss_list, acc_list = training_loop(model, optimizer, criterion, scheduler, device, opt.num_epochs, dataloader(opt), opt.CHECKPOINT_PATH)
+    else:
+        model, loss_list, acc_list = load_train_continue(opt.CHECKPOINT_PATH, model)
+
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(time_elapsed // 60, time_elapsed % 60))
 
-    visualize_loss(loss_list, './report1/lossFTResNet50py.png')
-    visualize_acc(acc_list,'./report1/ACCFTResNet50py.png')
+    visualize_loss(loss_list, './reportCOVIDNetAUG/loss_COVIDNet.png')
+    visualize_acc(acc_list,'./reportCOVIDNetAUG/ACC_COVIDNet.png')
 
-    resnet = load_model(opt.CHECKPOINT_PATH, resnet)
-    y_true, y_pred = test_loop(resnet, device, dataloader()['test'])
+    # model, _, _ = load_train_continue(opt.CHECKPOINT_PATH, model)
+    y_true, y_pred = test_loop(model, device, dataloader(opt)['test'])
     accuracy = accuracy_score(y_true, y_pred)
     print(accuracy)
 
     confusion(y_true, y_pred, opt.classes)
-    report(y_true, y_pred, opt.classes, './report1/classification_reportRetNet50.txt')
+    ##################################################
+
+    report(y_true, y_pred, opt.classes, './reportCOVIDNetAUG/classification_reportCOVIDNet.txt')
     
     pred_str = str('')
 
@@ -192,20 +148,24 @@ def main():
     img = Image.open(path_image)
     plt.imshow(img)
 
-    predict(path_image,resnet)
+    predict(path_image,model)
     plt.title('predict:{}'.format(pred_str))
     plt.text(5,45,'top {}:{}'.format(1,pred_str), bbox = dict(fc='yellow'))
     plt.show()
 
-def testreport(resnet):
-    opt = get_opt()
-    resnet = load_model(opt.CHECKPOINT_PATH, resnet)
-    y_true, y_pred = test_loop(resnet, device, dataloader()['test'])
+def testreport(model):
+
+    model , loss_list, acc_list = load_model(opt.CHECKPOINT_PATH, model)
+
+    visualize_loss(loss_list, './reportCOVIDNetAUG/lossCOVIDNet.png')
+    visualize_acc(acc_list,'./reportCOVIDNetAUG/ACCCOVIDNet.png')
+    y_true, y_pred = test_loop(model, device, dataloader()['test'])
+
     accuracy = accuracy_score(y_true, y_pred)
     print(accuracy)
 
     confusion(y_true, y_pred, opt.classes)
-    report(y_true, y_pred, opt.classes, './report1/classification_report50.txt')
+    report(y_true, y_pred, opt.classes, './reportCOVIDNetAUG/classification_reportCOVIDNet.txt')
     
     pred_str = str('')
 
@@ -214,19 +174,50 @@ def testreport(resnet):
     img = Image.open(path_image)
     plt.imshow(img)
 
-    predict(path_image,resnet)
+    predict(path_image,model)
     plt.title('predict:{}'.format(pred_str))
     plt.text(5,45,'top {}:{}'.format(1,pred_str), bbox = dict(fc='yellow'))
     plt.show()
 
+def reportevalution(model):
+
+    model , loss_list, acc_list = load_model(opt.CHECKPOINT_PATH, model)
+    # model , loss_list, acc_list = load_model('./model/covidnet.pt', model)
+    
+    # print(loss_list)
+    y_true, y_pred = test_loop(model, device, dataloader(opt)['test'])
+    
+    report(y_true, y_pred, opt.classes, './reportCOVIDNetAUG/classification_reportCOVIDNet.txt')
+
+    confusion = confusion_matrix(y_true, y_pred)
+    print(confusion)
+    TN = confusion[0,0]
+    FP = confusion[0,1]
+    FN = confusion[1,0]
+    TP = confusion[1,1]
+    # print(TP, FN, FP, TN)
+    
+    precision = TP/(TP + FP)
+    recall = TP/(TP + FN)
+    f1_score = (2*TP)/(2*TP + FP+FN)
+    accuracy = (TP+TN)/(TP+TN+FP+FN)
+
+    specificity_P = TN/(TN+FP)
+    specificity_N = TP/(TP + FN)
+    specificity = (specificity_P + specificity_N)/2
+    print(precision, recall, f1_score, accuracy, specificity)
 
 if __name__ == '__main__':
 
     opt = get_opt()
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     criterion = CrossEntropyLoss()
-    resnet = initialize_model(opt.num_classes, opt.feature_extract,use_pretrained=True)
-    # testreport(resnet)
+    model = initialize_model(opt.num_classes, opt.feature_extract,use_pretrained=True)
+    optimizer, scheduler = optimi(model,device, opt.feature_extract, opt.lr, opt.num_epochs)
+    # testreport(model)
     # visualiz()
-    main()
+    main(model, first_train=True)
+    reportevalution(model)
     # dataloader()
+    # model , loss_list, acc_list = load_model('./model/covidnet.pt', model)
+    # print(acc_list)

@@ -248,3 +248,4 @@ class BalanceCovidDataset(Dataset):
         #     return batch_sem_x, batch_x, batch_y, weights, self.is_training
         # else:
         return batch_x, batch_y, weights, self.is_training
+

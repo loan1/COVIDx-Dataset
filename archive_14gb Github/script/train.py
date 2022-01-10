@@ -1,19 +1,23 @@
 #importing the libraries
+# from _typeshed import NoneType
 import numpy as np
 from tqdm import tqdm
 from torch.nn import CrossEntropyLoss
 import torch
 
-def training_loop(model, optimizer, criterion, scheduler, device, num_epochs, dataloader, CHECKPOINT_PATH):
+def training_loop(model, optimizer, criterion, scheduler, device, max_epochs, dataloader, CHECKPOINT_PATH, epochs = 0, lossli= None, accli = None):
     model.to(device)
     #List to store loss to visualize
-    lossli = []
-    accli = []
-    
+    if lossli == None :
+        lossli = []
+
+    if accli== None:
+        accli = []
+   
     valid_loss_min = np.Inf # track change in validation loss
     count = 0
     patience = 8 # nếu val_loss tăng 8 lần thì ngừng
-    for epoch in range(num_epochs):
+    for epoch in range(epochs, max_epochs):
         
         # keep track of training and validation loss
         train_loss = 0.0
@@ -27,7 +31,7 @@ def training_loop(model, optimizer, criterion, scheduler, device, num_epochs, da
         ###################
         
         model.train()
-        for data, label in tqdm(dataloader()['train']):
+        for data, label in tqdm(dataloader['train']):
             data = data.to(device)
             label = label.to(device)
             optimizer.zero_grad()
@@ -52,7 +56,7 @@ def training_loop(model, optimizer, criterion, scheduler, device, num_epochs, da
         
         model.eval()
         with torch.no_grad():
-            for data, label in tqdm(dataloader()['val']):
+            for data, label in tqdm(dataloader['val']):
                 data = data.to(device)
                 label = label.to(device)
                 output = model(data)
@@ -67,12 +71,12 @@ def training_loop(model, optimizer, criterion, scheduler, device, num_epochs, da
                 valid_acc +=  pred.eq(label).sum().item()
        
         # calculate average losses
-        train_loss = train_loss/len(dataloader()['train'].dataset)
-        valid_loss = valid_loss/len(dataloader()['val'].dataset)
+        train_loss = train_loss/len(dataloader['train'].dataset)
+        valid_loss = valid_loss/len(dataloader['val'].dataset)
         lossli.append({'epoch':epoch,'train_loss': train_loss,'valid_loss':valid_loss})
         
-        train_acc = train_acc*100/len(dataloader()['train'].dataset)
-        valid_acc = valid_acc*100/len(dataloader()['val'].dataset)
+        train_acc = train_acc*100/len(dataloader['train'].dataset)
+        valid_acc = valid_acc*100/len(dataloader['val'].dataset)
         accli.append({'epoch':epoch,'train_acc': train_acc,'valid_acc':valid_acc})
         
         ####################
@@ -100,7 +104,7 @@ def training_loop(model, optimizer, criterion, scheduler, device, num_epochs, da
             
             count = 0
             print('count = ',count)
-            torch.save(model, './model/FTResNet50.pt') #save model 
+            torch.save(model, './model/CovidNet1.pt') #save model 
                                   
             valid_loss_min = valid_loss
         else:

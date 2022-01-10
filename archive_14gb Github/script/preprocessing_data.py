@@ -6,6 +6,8 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 import numpy as np
+
+
 #tao duong dan den data
 train_path = '../dataset/train/'
 test_path = '../dataset/test/'
@@ -56,4 +58,5 @@ with open('../dataset/val_set.txt', 'w') as f:
 f.close()
 
 # np.savetxt('train_t.txt', )
+
 
